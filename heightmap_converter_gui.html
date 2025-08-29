@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Heightmap TXT Converter</title>
+<style>
+body{font-family:Arial,sans-serif;text-align:center;padding:2em;background:#222;color:#eee}
+h1{margin-bottom:.5em}.sub{opacity:.8;margin-bottom:1em}
+.drop-zone{border:2px dashed #888;border-radius:10px;padding:2em;background:#333;cursor:pointer;transition:.3s;max-width:560px;margin:0 auto 0.75em}
+.drop-zone.dragover{background:#444}
+#preview{margin-top:1em;max-width:90%;border:1px solid #555;border-radius:6px}
+.row{display:flex;gap:.5em;justify-content:center;flex-wrap:wrap}
+button{margin-top:.5em;padding:.5em 1em;font-size:1em;border:none;border-radius:6px;background:#4caf50;color:#fff;cursor:pointer;transition:.05s ease,.3s}
+button:hover:enabled{background:#45a049}button:active:enabled{transform:scale(.98)}button.secondary{background:#5865f2}button.secondary:hover{background:#4f5ae6}button:disabled{background:#777;cursor:not-allowed}
+.hint{font-size:.9em;opacity:.8}
+select{margin-top:.5em;padding:.3em;border-radius:5px;background:#333;color:#eee;border:1px solid #555}
+</style>
+</head>
+<body>
+<h1>Heightmap → TXT Converter</h1>
+<div class="sub">Upload a grayscale image or generate smooth Perlin terrain. TXT export is one value per line.</div>
+<div class="drop-zone" id="dropZone">Drop your heightmap image here or click to upload</div>
+<input type="file" id="fileInput" accept="image/*" style="display:none">
+<div class="row">
+<label>Resolution: <select id="resSelect"><option value="100">100×100</option><option value="200" selected>200×200</option><option value="256">256×256</option><option value="512">512×512</option></select></label>
+<button id="generateBtn" class="secondary">Generate Perlin Terrain</button>
+<button id="downloadBtn" disabled>Download TXT</button>
+</div>
+<canvas id="canvas" width="200" height="200" style="display:none"></canvas>
+<div><img id="preview" alt="Preview"></div>
+<script>
+const dropZone=document.getElementById('dropZone'),fileInput=document.getElementById('fileInput'),canvas=document.getElementById('canvas'),ctx=canvas.getContext('2d'),preview=document.getElementById('preview'),downloadBtn=document.getElementById('downloadBtn'),generateBtn=document.getElementById('generateBtn'),resSelect=document.getElementById('resSelect');
+let txtData='',TARGET_SIZE=parseInt(resSelect.value);
+resSelect.addEventListener('change',()=>{TARGET_SIZE=parseInt(resSelect.value);canvas.width=TARGET_SIZE;canvas.height=TARGET_SIZE});
+dropZone.addEventListener('click',()=>fileInput.click());
+dropZone.addEventListener('dragover',e=>{e.preventDefault();dropZone.classList.add('dragover')});
+dropZone.addEventListener('dragleave',()=>dropZone.classList.remove('dragover'));
+dropZone.addEventListener('drop',e=>{e.preventDefault();dropZone.classList.remove('dragover');handleFile(e.dataTransfer.files[0])});
+fileInput.addEventListener('change',e=>handleFile(e.target.files[0]));
+function handleFile(file){if(!file)return;const img=new Image();img.onload=()=>{const imgRatio=img.width/img.height,canvasRatio=TARGET_SIZE/TARGET_SIZE;let drawWidth,drawHeight;if(imgRatio>canvasRatio){drawWidth=TARGET_SIZE;drawHeight=TARGET_SIZE/imgRatio}else{drawHeight=TARGET_SIZE;drawWidth=TARGET_SIZE*imgRatio}ctx.fillStyle='black';ctx.fillRect(0,0,TARGET_SIZE,TARGET_SIZE);ctx.drawImage(img,(TARGET_SIZE-drawWidth)/2,(TARGET_SIZE-drawHeight)/2,drawWidth,drawHeight);preview.src=canvas.toDataURL();processImage()};img.src=URL.createObjectURL(file)}
+function processImage(){const{width,height}=canvas,imageData=ctx.getImageData(0,0,width,height),data=imageData.data,values=new Array(width*height);for(let y=0;y<height;y++)for(let x=0;x<width;x++){const i=(y*width+x)*4,gray=Math.round((data[i]+data[i+1]+data[i+2])/3);values[y*width+x]=gray}txtData=values.join('\n');downloadBtn.disabled=false}
+downloadBtn.addEventListener('click',()=>{const blob=new Blob([txtData],{type:'text/plain'}),link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download='heightmap.txt';link.click()});
+const PERM=(function(){const p=new Uint8Array(512),base=new Uint8Array(256);for(let i=0;i<256;i++)base[i]=i;for(let i=255;i>0;i--){const j=Math.floor(Math.random()*(i+1));[base[i],base[j]]=[base[j],base[i]]}for(let i=0;i<512;i++)p[i]=base[i&255];return p})();
+function fade(t){return t*t*t*(t*(t*6-15)+10)}
+function lerp(a,b,t){return a+t*(b-a)}
+function grad(hash,x,y){switch(hash&15){case 0:return x+y;case 1:return -x+y;case 2:return x-y;case 3:return -x-y;case 4:return x;case 5:return -x;case 6:return y;case 7:return -y;default:return x+y}}
+function perlin2(x,y){const X=Math.floor(x)&255,Y=Math.floor(y)&255,xf=x-Math.floor(x),yf=y-Math.floor(y),u=fade(xf),v=fade(yf),aa=PERM[X+PERM[Y]],ab=PERM[X+PERM[Y+1]],ba=PERM[X+1+PERM[Y]],bb=PERM[X+1+PERM[Y+1]],x1=lerp(grad(aa,xf,yf),grad(ba,xf-1,yf),u),x2=lerp(grad(ab,xf,yf-1),grad(bb,xf-1,yf-1),u);return lerp(x1,x2,v)}
+function fbm2(x,y,octaves=6,lacunarity=2,gain=.5){let amp=1,freq=1,sum=0,norm=0;for(let i=0;i<octaves;i++){sum+=amp*perlin2(x*freq,y*freq);norm+=amp;amp*=gain;freq*=lacunarity}return sum/norm}
+function generatePerlinHeightmap(size,opts={}){const{scale=60,octaves=6,lacunarity=2,gain=.5}=opts,img=ctx.createImageData(size,size),ox=Math.random()*1000,oy=Math.random()*1000;for(let y=0;y<size;y++)for(let x=0;x<size;x++){let n=fbm2((x+ox)/scale,(y+oy)/scale,octaves,lacunarity,gain);n=Math.sign(n)*Math.pow(Math.abs(n),.9);const g=Math.max(0,Math.min(255,Math.round((n*.5+.5)*255))),i=(y*size+x)*4;img.data[i]=g;img.data[i+1]=g;img.data[i+2]=g;img.data[i+3]=255}return img}
+generateBtn.addEventListener('click',()=>{canvas.width=TARGET_SIZE;canvas.height=TARGET_SIZE;const imageData=generatePerlinHeightmap(TARGET_SIZE,{scale:70,octaves:6,lacunarity:2,gain:.5});ctx.putImageData(imageData,0,0);preview.src=canvas.toDataURL();processImage()});
+</script>
+</body>
+</html>
